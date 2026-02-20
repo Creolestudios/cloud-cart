@@ -1,0 +1,49 @@
+# ============================================================
+# Kubernetes — ConfigMap & Secrets
+# ============================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudcart-config
+  namespace: cloudcart
+data:
+  redis-host: "redis"
+  redis-port: "6379"
+  rabbitmq-host: "rabbitmq"
+  log-level: "info"
+  node-env: "production"
+
+---
+# NOTE: In production, use External Secrets Operator or 
+# Sealed Secrets instead of plain Kubernetes secrets
+apiVersion: v1
+kind: Secret
+metadata:
+  name: auth-secrets
+  namespace: cloudcart
+type: Opaque
+stringData:
+  jwt-secret: "CHANGE_ME_IN_PRODUCTION"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-secrets
+  namespace: cloudcart
+type: Opaque
+stringData:
+  mongo-uri: "mongodb://cloudcart:CHANGE_ME@mongodb:27017/cloudcart?authSource=admin"
+  postgres-host: "postgres"
+  postgres-password: "CHANGE_ME"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rabbitmq-secrets
+  namespace: cloudcart
+type: Opaque
+stringData:
+  rabbitmq-url: "amqp://cloudcart:CHANGE_ME@rabbitmq:5672"

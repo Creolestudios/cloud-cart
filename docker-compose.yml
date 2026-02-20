@@ -1,0 +1,356 @@
+# ============================================================
+# CloudCart — Docker Compose (Development)
+# All services with hot-reload for local development
+# ============================================================
+
+version: "3.9"
+
+x-common-env: &common-env
+  NODE_ENV: ${NODE_ENV:-development}
+  LOG_LEVEL: ${LOG_LEVEL:-debug}
+
+x-healthcheck-defaults: &healthcheck-defaults
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 40s
+
+services:
+  # ── API Gateway ──────────────────────────────────────────
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: cloudcart-gateway
+    ports:
+      - "${GATEWAY_PORT:-80}:80"
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      product-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+    networks:
+      - frontend-net
+      - backend-net
+    restart: unless-stopped
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+
+  # ── Auth Service ─────────────────────────────────────────
+  auth-service:
+    build:
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+      target: development
+    container_name: cloudcart-auth
+    environment:
+      <<: *common-env
+      PORT: ${AUTH_SERVICE_PORT:-4001}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-24h}
+      BCRYPT_SALT_ROUNDS: ${BCRYPT_SALT_ROUNDS:-12}
+      MONGO_URI: ${MONGO_URI:-mongodb://cloudcart:changeme@mongodb:27017/cloudcart_auth?authSource=admin}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://cloudcart:changeme@rabbitmq:5672}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme_redis}
+    ports:
+      - "${AUTH_SERVICE_PORT:-4001}:4001"
+    volumes:
+      - ./services/auth-service/src:/app/src:ro
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend-net
+    restart: unless-stopped
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:4001/health"]
+
+  # ── Product Service ──────────────────────────────────────
+  product-service:
+    build:
+      context: ./services/product-service
+      dockerfile: Dockerfile
+      target: development
+    container_name: cloudcart-products
+    environment:
+      <<: *common-env
+      PORT: ${PRODUCT_SERVICE_PORT:-4002}
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-cloudcart_products}
+      POSTGRES_USER: ${POSTGRES_USER:-cloudcart}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_postgres}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme_redis}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://cloudcart:changeme@rabbitmq:5672}
+    ports:
+      - "${PRODUCT_SERVICE_PORT:-4002}:4002"
+    volumes:
+      - ./services/product-service/app:/app/app:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend-net
+    restart: unless-stopped
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:4002/health"]
+
+  # ── Order Service ────────────────────────────────────────
+  order-service:
+    build:
+      context: ./services/order-service
+      dockerfile: Dockerfile
+      target: development
+    container_name: cloudcart-orders
+    environment:
+      <<: *common-env
+      PORT: ${ORDER_SERVICE_PORT:-4003}
+      MONGO_URI: ${MONGO_URI:-mongodb://cloudcart:changeme@mongodb:27017/cloudcart_orders?authSource=admin}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://cloudcart:changeme@rabbitmq:5672}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme_redis}
+      AUTH_SERVICE_URL: http://auth-service:4001
+      PRODUCT_SERVICE_URL: http://product-service:4002
+    ports:
+      - "${ORDER_SERVICE_PORT:-4003}:4003"
+    volumes:
+      - ./services/order-service/src:/app/src:ro
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend-net
+    restart: unless-stopped
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "curl", "-f", "http://localhost:4003/health"]
+
+  # ── Frontend ─────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: cloudcart-frontend
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:80/api}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    volumes:
+      - ./frontend/src:/app/src:ro
+      - ./frontend/public:/app/public:ro
+    depends_on:
+      - api-gateway
+    networks:
+      - frontend-net
+    restart: unless-stopped
+
+  # ── PostgreSQL ───────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: cloudcart-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cloudcart_products}
+      POSTGRES_USER: ${POSTGRES_USER:-cloudcart}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-db/postgres:/docker-entrypoint-initdb.d:ro
+    networks:
+      - backend-net
+    restart: unless-stopped
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cloudcart} -d ${POSTGRES_DB:-cloudcart_products}"]
+
+  # ── MongoDB ──────────────────────────────────────────────
+  mongodb:
+    image: mongo:7-jammy
+    container_name: cloudcart-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-cloudcart}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-changeme_mongo}
+      MONGO_INITDB_DATABASE: ${MONGO_DB:-cloudcart}
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongo-data:/data/db
+      - ./scripts/init-db/mongo:/docker-entrypoint-initdb.d:ro
+    networks:
+      - backend-net
+    restart: unless-stopped
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+
+  # ── RabbitMQ ─────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: cloudcart-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-cloudcart}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-changeme_rabbitmq}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - backend-net
+    restart: unless-stopped
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+
+  # ── Redis ────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: cloudcart-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:-changeme_redis} --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - backend-net
+    restart: unless-stopped
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme_redis}", "ping"]
+
+  # ── Monitoring Stack (Optional Profile) ──────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: cloudcart-prometheus
+    profiles: ["monitoring"]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    networks:
+      - monitoring-net
+      - backend-net
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: cloudcart-grafana
+    profiles: ["monitoring"]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:2.9.5
+    container_name: cloudcart-loki
+    profiles: ["monitoring"]
+    command: -config.file=/etc/loki/loki-config.yml
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./monitoring/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:2.9.5
+    container_name: cloudcart-promtail
+    profiles: ["monitoring"]
+    command: -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - ./monitoring/loki/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    depends_on:
+      - loki
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: cloudcart-alertmanager
+    profiles: ["monitoring"]
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+
+# ── Networks ───────────────────────────────────────────────
+networks:
+  frontend-net:
+    driver: bridge
+    name: cloudcart-frontend
+  backend-net:
+    driver: bridge
+    name: cloudcart-backend
+  monitoring-net:
+    driver: bridge
+    name: cloudcart-monitoring
+
+# ── Volumes ────────────────────────────────────────────────
+volumes:
+  postgres-data:
+    name: cloudcart-postgres-data
+  mongo-data:
+    name: cloudcart-mongo-data
+  rabbitmq-data:
+    name: cloudcart-rabbitmq-data
+  redis-data:
+    name: cloudcart-redis-data
+  prometheus-data:
+    name: cloudcart-prometheus-data
+  grafana-data:
+    name: cloudcart-grafana-data
+  loki-data:
+    name: cloudcart-loki-data

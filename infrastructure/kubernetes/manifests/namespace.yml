@@ -1,0 +1,10 @@
+# ============================================================
+# Kubernetes — Namespace
+# ============================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudcart
+  labels:
+    app.kubernetes.io/part-of: cloudcart
+    environment: production

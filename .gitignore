@@ -1,0 +1,55 @@
+# ── Environment & Secrets ────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.crt
+
+# ── Dependencies ─────────────────────────────────────────────
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# ── Build Artifacts ──────────────────────────────────────────
+dist/
+build/
+*.tar.gz
+*.zip
+
+# ── IDE & Editor ─────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ── Docker ───────────────────────────────────────────────────
+docker-compose.override.yml
+
+# ── Terraform ────────────────────────────────────────────────
+infrastructure/terraform/**/.terraform/
+infrastructure/terraform/**/*.tfstate
+infrastructure/terraform/**/*.tfstate.backup
+infrastructure/terraform/**/*.tfplan
+infrastructure/terraform/**/.terraform.lock.hcl
+
+# ── Testing ──────────────────────────────────────────────────
+coverage/
+.coverage
+htmlcov/
+.pytest_cache/
+.nyc_output/
+
+# ── Logs ─────────────────────────────────────────────────────
+logs/
+*.log
+
+# ── Monitoring Data ──────────────────────────────────────────
+monitoring/grafana/data/
+monitoring/prometheus/data/
+monitoring/loki/data/
